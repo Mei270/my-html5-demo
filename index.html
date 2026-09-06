@@ -576,7 +576,7 @@ input,select{font-size:16px!important}
 }
 
 
-/* fixed16: three-hour WPS-issued access code gate */
+/* fixed17: three-hour WPS formula access code gate */
 body.accessLocked{overflow:hidden}
 body.accessLocked .app{pointer-events:none;user-select:none;filter:blur(6px);transform:scale(1.015)}
 .accessGate{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:20px;background:linear-gradient(180deg,rgba(255,244,234,.97),rgba(255,229,212,.99));overflow:auto}
@@ -607,7 +607,7 @@ body.accessLocked .app{pointer-events:none;user-select:none;filter:blur(6px);tra
     <h1 id="accessGateTitle">请输入报告验证码</h1>
     <p>验证码生成后3小时内有效。验证成功即可完成测试并查看完整猫格报告。</p>
     <label class="accessCodeLabel" for="accessCodeInput">验证码</label>
-    <input id="accessCodeInput" class="accessCodeInput" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="例如 CAT-XXXX-XXXXXX-XXXXXXXX">
+    <input id="accessCodeInput" class="accessCodeInput" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="例如 CATF-202609061830-00000001-12345678">
     <button id="accessCodeButton" class="accessCodeButton" type="button">验证并进入测试</button>
     <div id="accessCodeStatus" class="accessCodeStatus" role="alert" aria-live="polite"></div>
     <div class="accessGateNote">验证码只控制3小时有效期。同一验证码在有效期内可以在不同手机使用。</div>
@@ -903,55 +903,47 @@ body.accessLocked .app{pointer-events:none;user-select:none;filter:blur(6px);tra
 </div>
 <script>
 
-/* fixed16: the browser verifies the signed expiry without reading the owner's WPS file. */
-const ACCESS_GATE_VERSION='C1';
-const ACCESS_GATE_SECRET='ZlrbnxHZ_HzDOzXXa6fQZAjoIVnollOSg913dpqAQTs';
-const ACCESS_GATE_BASE32='0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-const ACCESS_GATE_STORAGE='cat_mbti_access_v1';
+/* fixed17: verifies formula-generated WPS codes without scripts, buttons, or automation. */
+const ACCESS_GATE_STORAGE='cat_mbti_access_formula_v1';
+const ACCESS_FORMULA_SECRET=482731;
 let accessExpiryTimer=0;
 
-function accessUtf8Bytes(text){
-  const bytes=[];
-  for(let i=0;i<text.length;i++){
-    let code=text.charCodeAt(i);
-    if(code>=0xd800&&code<=0xdbff&&i+1<text.length){const next=text.charCodeAt(++i);code=0x10000+((code-0xd800)<<10)+(next-0xdc00);}
-    if(code<0x80)bytes.push(code);
-    else if(code<0x800)bytes.push(0xc0|(code>>6),0x80|(code&63));
-    else if(code<0x10000)bytes.push(0xe0|(code>>12),0x80|((code>>6)&63),0x80|(code&63));
-    else bytes.push(0xf0|(code>>18),0x80|((code>>12)&63),0x80|((code>>6)&63),0x80|(code&63));
-  }
-  return bytes;
+function accessEqual(left,right){
+  if(left.length!==right.length)return false;
+  let mismatch=0;
+  for(let i=0;i<left.length;i++)mismatch|=left.charCodeAt(i)^right.charCodeAt(i);
+  return mismatch===0;
 }
-function accessRotr(value,bits){return(value>>>bits)|(value<<(32-bits));}
-function accessSha256(inputBytes){
-  const k=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
-  const h=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
-  const bytes=inputBytes.slice(),bitLength=inputBytes.length*8;bytes.push(0x80);while(bytes.length%64!==56)bytes.push(0);
-  const high=Math.floor(bitLength/0x100000000),low=bitLength>>>0;
-  bytes.push((high>>>24)&255,(high>>>16)&255,(high>>>8)&255,high&255,(low>>>24)&255,(low>>>16)&255,(low>>>8)&255,low&255);
-  const w=new Array(64);
-  for(let offset=0;offset<bytes.length;offset+=64){
-    for(let i=0;i<16;i++){const p=offset+i*4;w[i]=((bytes[p]<<24)|(bytes[p+1]<<16)|(bytes[p+2]<<8)|bytes[p+3])>>>0;}
-    for(let i=16;i<64;i++){const s0=(accessRotr(w[i-15],7)^accessRotr(w[i-15],18)^(w[i-15]>>>3))>>>0;const s1=(accessRotr(w[i-2],17)^accessRotr(w[i-2],19)^(w[i-2]>>>10))>>>0;w[i]=(w[i-16]+s0+w[i-7]+s1)>>>0;}
-    let a=h[0],b=h[1],c=h[2],d=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];
-    for(let i=0;i<64;i++){const s1=(accessRotr(e,6)^accessRotr(e,11)^accessRotr(e,25))>>>0;const ch=((e&f)^(~e&g))>>>0;const t1=(hh+s1+ch+k[i]+w[i])>>>0;const s0=(accessRotr(a,2)^accessRotr(a,13)^accessRotr(a,22))>>>0;const maj=((a&b)^(a&c)^(b&c))>>>0;const t2=(s0+maj)>>>0;hh=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0;}
-    h[0]=(h[0]+a)>>>0;h[1]=(h[1]+b)>>>0;h[2]=(h[2]+c)>>>0;h[3]=(h[3]+d)>>>0;h[4]=(h[4]+e)>>>0;h[5]=(h[5]+f)>>>0;h[6]=(h[6]+g)>>>0;h[7]=(h[7]+hh)>>>0;
-  }
-  const output=[];h.forEach(word=>output.push((word>>>24)&255,(word>>>16)&255,(word>>>8)&255,word&255));return output;
+function accessNormalize(value){
+  return String(value||'').toUpperCase().replace(/[\s—–_]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
 }
-function accessHmac(secret,message){let key=accessUtf8Bytes(secret);if(key.length>64)key=accessSha256(key);while(key.length<64)key.push(0);const inner=key.map(value=>value^0x36),outer=key.map(value=>value^0x5c);return accessSha256(outer.concat(accessSha256(inner.concat(accessUtf8Bytes(message)))));}
-function accessSignature(message){const bytes=accessHmac(ACCESS_GATE_SECRET,message).slice(0,10);let bits=0,value=0,output='';bytes.forEach(byte=>{value=(value<<8)|byte;bits+=8;while(bits>=5){output+=ACCESS_GATE_BASE32[(value>>>(bits-5))&31];bits-=5;}});return output;}
-function accessEqual(left,right){if(left.length!==right.length)return false;let mismatch=0;for(let i=0;i<left.length;i++)mismatch|=left.charCodeAt(i)^right.charCodeAt(i);return mismatch===0;}
-function accessNormalize(value){return String(value||'').toUpperCase().replace(/[\s—–_]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');}
+function accessBeijingTime(expiryPart){
+  const year=Number(expiryPart.slice(0,4));
+  const month=Number(expiryPart.slice(4,6));
+  const day=Number(expiryPart.slice(6,8));
+  const hour=Number(expiryPart.slice(8,10));
+  const minute=Number(expiryPart.slice(10,12));
+  if(year<2025||year>2099||month<1||month>12||day<1||day>31||hour>23||minute>59)return NaN;
+  const expiresMs=Date.UTC(year,month-1,day,hour-8,minute);
+  const check=new Date(expiresMs+8*60*60*1000);
+  if(check.getUTCFullYear()!==year||check.getUTCMonth()+1!==month||check.getUTCDate()!==day||check.getUTCHours()!==hour||check.getUTCMinutes()!==minute)return NaN;
+  return expiresMs;
+}
+function accessFormulaSignature(expiryPart,sequencePart){
+  const expiryTail=Number(expiryPart.slice(-8));
+  const sequence=Number(sequencePart);
+  const signature=(expiryTail*137+sequence*7919+ACCESS_FORMULA_SECRET)%100000000;
+  return String(signature).padStart(8,'0');
+}
 function accessParse(value){
-  const code=accessNormalize(value),match=/^CAT-([0-9A-Z]+)-([0-9A-Z]{6})-([0-9A-Z]{16})$/.exec(code);
-  if(!match)return{ok:false,reason:'请输入完整验证码，注意不要漏掉字母或数字。'};
-  const expiryPart=match[1],nonce=match[2],provided=match[3];
-  const expiresMinute=parseInt(expiryPart,36);
-  if(!Number.isFinite(expiresMinute))return{ok:false,reason:'验证码格式不正确。'};
-  const expected=accessSignature(`${ACCESS_GATE_VERSION}|${expiryPart}|${nonce}`);
+  const code=accessNormalize(value),match=/^CATF-(\d{12})-(\d{8})-(\d{8})$/.exec(code);
+  if(!match)return{ok:false,reason:'请输入完整验证码，注意不要漏掉字母、数字或短横线。'};
+  const expiryPart=match[1],sequencePart=match[2],provided=match[3];
+  const expiresMs=accessBeijingTime(expiryPart);
+  if(!Number.isFinite(expiresMs))return{ok:false,reason:'验证码时间格式不正确。'};
+  const expected=accessFormulaSignature(expiryPart,sequencePart);
   if(!accessEqual(provided,expected))return{ok:false,reason:'验证码不正确，请重新复制完整验证码。'};
-  return{ok:true,code,expiresMs:expiresMinute*60000};
+  return{ok:true,code,expiresMs};
 }
 async function accessNow(){
   if(/^https?:$/.test(location.protocol)){
